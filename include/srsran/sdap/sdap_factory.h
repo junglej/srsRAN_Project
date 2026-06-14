@@ -38,10 +38,30 @@ struct sdap_entity_creation_message {
   uint32_t              ue_index;
   pdu_session_id_t      pdu_session_id;
   sdap_rx_sdu_notifier* rx_sdu_notifier;
+  /// Optional FPGA offload tee target. When non-null, every DL SDU passed to
+  /// the SDAP entity's TX path is also forwarded to this notifier (in
+  /// addition to the per-DRB pdu_notifier supplied via add_mapping). nullptr
+  /// keeps the FPGA path disabled, which is the production default.
+  sdap_tx_pdu_notifier* fpga_offload = nullptr;
 };
 
 /// Creates an instance of a SDAP interface.
 std::unique_ptr<sdap_entity> create_sdap(sdap_entity_creation_message& msg);
+
+/// Returns a process-wide singleton FPGA offload notifier, or nullptr when
+/// the FPGA path is disabled.
+///
+/// Gating:
+///   - Returns nullptr unless the SRSRAN_FPGA_OFFLOAD env var is set to "1".
+///   - First call constructs the notifier (opens /dev/pcie_fpga0, mmaps BAR0
+///     and DMA buffer). If the device can't be opened, returns nullptr after
+///     logging.
+///   - Same pointer is returned across all subsequent calls.
+///
+/// Intended use: pdu_session_manager_impl plumbs the returned pointer into
+/// every sdap_entity_creation_message::fpga_offload so that DL SDUs from any
+/// UE/PDU session are tee'd to the FPGA in addition to the normal pipeline.
+sdap_tx_pdu_notifier* get_fpga_offload_notifier();
 
 } // namespace srs_cu_up
 

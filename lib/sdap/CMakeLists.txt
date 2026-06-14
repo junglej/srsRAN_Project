@@ -18,7 +18,9 @@
 # and at http://www.gnu.org/licenses/.
 #
 
-set(SOURCES sdap_factory.cpp)
+set(SOURCES
+    sdap_factory.cpp
+    sdap_tx_fpga_notifier.cpp)
 
 add_library(srsran_sdap STATIC ${SOURCES})
 target_link_libraries(srsran_sdap)

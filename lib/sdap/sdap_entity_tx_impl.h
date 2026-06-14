@@ -36,8 +36,13 @@ public:
                       pdu_session_id_t      psi,
                       qos_flow_id_t         qfi_,
                       drb_id_t              drb_id_,
-                      sdap_tx_pdu_notifier& pdu_notifier_) :
-    logger("SDAP", {ue_index, psi, qfi_, drb_id_, "DL"}), qfi(qfi_), drb_id(drb_id_), pdu_notifier(pdu_notifier_)
+                      sdap_tx_pdu_notifier& pdu_notifier_,
+                      sdap_tx_pdu_notifier* fpga_offload_ = nullptr) :
+    logger("SDAP", {ue_index, psi, qfi_, drb_id_, "DL"}),
+    qfi(qfi_),
+    drb_id(drb_id_),
+    pdu_notifier(pdu_notifier_),
+    fpga_offload(fpga_offload_)
   {
   }
 
@@ -45,6 +50,13 @@ public:
   {
     // pass through
     logger.log_debug("TX PDU. {} pdu_len={}", qfi, sdu.length());
+
+    // Optional FPGA tee: mirror the SDU to the FPGA notifier before the
+    // normal downstream forward. Shallow copy keeps the data path zero-copy.
+    if (fpga_offload != nullptr) {
+      fpga_offload->on_new_pdu(sdu.copy());
+    }
+
     pdu_notifier.on_new_pdu(std::move(sdu));
   }
 
@@ -55,6 +67,7 @@ private:
   qos_flow_id_t           qfi;
   drb_id_t                drb_id;
   sdap_tx_pdu_notifier&   pdu_notifier;
+  sdap_tx_pdu_notifier*   fpga_offload;
 };
 
 } // namespace srs_cu_up

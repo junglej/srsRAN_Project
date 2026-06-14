@@ -116,8 +116,11 @@ pdu_session_setup_result pdu_session_manager_impl::setup_pdu_session(const e1ap_
   pdu_session_result.gtp_tunnel =
       up_transport_layer_info(transport_layer_address::create_from_string(n3_addr), new_session->local_teid);
 
-  // Create SDAP entity
-  sdap_entity_creation_message sdap_msg = {ue_index, session.pdu_session_id, &new_session->sdap_to_gtpu_adapter};
+  // Create SDAP entity. fpga_offload is non-null only when SRSRAN_FPGA_OFFLOAD=1
+  // is set in the environment -- in that case every DL SDU is also tee'd to the
+  // FPGA via sdap_entity_tx_impl::handle_sdu.
+  sdap_entity_creation_message sdap_msg = {
+      ue_index, session.pdu_session_id, &new_session->sdap_to_gtpu_adapter, get_fpga_offload_notifier()};
   new_session->sdap                     = create_sdap(sdap_msg);
 
   // Create GTPU entity

@@ -36,8 +36,15 @@ namespace srs_cu_up {
 class sdap_entity_impl : public sdap_entity, public sdap_tx_sdu_handler
 {
 public:
-  sdap_entity_impl(uint32_t ue_index_, pdu_session_id_t psi_, sdap_rx_sdu_notifier& rx_sdu_notifier_) :
-    logger("SDAP", {ue_index_, psi_}), ue_index(ue_index_), psi(psi_), rx_sdu_notifier(rx_sdu_notifier_)
+  sdap_entity_impl(uint32_t              ue_index_,
+                   pdu_session_id_t      psi_,
+                   sdap_rx_sdu_notifier& rx_sdu_notifier_,
+                   sdap_tx_pdu_notifier* fpga_offload_ = nullptr) :
+    logger("SDAP", {ue_index_, psi_}),
+    ue_index(ue_index_),
+    psi(psi_),
+    rx_sdu_notifier(rx_sdu_notifier_),
+    fpga_offload(fpga_offload_)
   {
   }
   ~sdap_entity_impl() override = default;
@@ -79,7 +86,7 @@ public:
 
     // create TX mapping
     std::unique_ptr<sdap_entity_tx_impl> tx =
-        std::make_unique<sdap_entity_tx_impl>(ue_index, psi, qfi, drb_id, tx_pdu_notifier);
+        std::make_unique<sdap_entity_tx_impl>(ue_index, psi, qfi, drb_id, tx_pdu_notifier, fpga_offload);
     tx_map.insert({qfi, std::move(tx)});
 
     // create RX mapping
@@ -110,6 +117,8 @@ private:
   uint32_t              ue_index;
   pdu_session_id_t      psi;
   sdap_rx_sdu_notifier& rx_sdu_notifier;
+  /// Optional FPGA tee target shared across all TX mappings for this entity.
+  sdap_tx_pdu_notifier* fpga_offload;
 
   std::unordered_map<qos_flow_id_t, std::unique_ptr<sdap_entity_tx_impl>> tx_map;
   std::unordered_map<drb_id_t, std::unique_ptr<sdap_entity_rx_impl>>      rx_map;

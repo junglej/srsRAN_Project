@@ -34,3 +34,8 @@ add_executable(sdap_rx_test sdap_rx_test.cpp)
 target_link_libraries(sdap_rx_test srsran_support srslog gtest gtest_main)
 target_include_directories(sdap_rx_test PRIVATE ${CMAKE_SOURCE_DIR})
 gtest_discover_tests(sdap_rx_test)
+
+add_executable(sdap_fpga_tee_test sdap_fpga_tee_test.cpp)
+target_link_libraries(sdap_fpga_tee_test srsran_sdap srsran_support srslog gtest gtest_main)
+target_include_directories(sdap_fpga_tee_test PRIVATE ${CMAKE_SOURCE_DIR})
+gtest_discover_tests(sdap_fpga_tee_test)

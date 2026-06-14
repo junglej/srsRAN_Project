@@ -22,6 +22,12 @@
 
 #include "srsran/sdap/sdap_factory.h"
 #include "sdap_entity_impl.h"
+#include "sdap_tx_fpga_notifier.h"
+#include "fmt/format.h"
+#include <cstdlib>
+#include <cstring>
+#include <memory>
+#include <mutex>
 
 /// Notice this would be the only place were we include concrete class implementation files.
 
@@ -34,5 +40,33 @@ using namespace srs_cu_up;
 
 std::unique_ptr<sdap_entity> srsran::srs_cu_up::create_sdap(sdap_entity_creation_message& msg)
 {
-  return std::make_unique<sdap_entity_impl>(msg.ue_index, msg.pdu_session_id, *msg.rx_sdu_notifier);
+  return std::make_unique<sdap_entity_impl>(msg.ue_index, msg.pdu_session_id, *msg.rx_sdu_notifier, msg.fpga_offload);
+}
+
+sdap_tx_pdu_notifier* srsran::srs_cu_up::get_fpga_offload_notifier()
+{
+  // First-call initialisation, gated by env var. Constructed once and reused
+  // for the whole process. Order of static destruction is fine: the notifier
+  // closes /dev/pcie_fpga0 in its destructor.
+  static std::once_flag                          init_once;
+  static std::unique_ptr<sdap_tx_fpga_notifier> notifier;
+  static bool                                    enabled = false;
+
+  std::call_once(init_once, []() {
+    const char* env = std::getenv("SRSRAN_FPGA_OFFLOAD");
+    if (env == nullptr || std::strcmp(env, "1") != 0) {
+      return;
+    }
+    sdap_fpga_config cfg{};
+    notifier = std::make_unique<sdap_tx_fpga_notifier>(cfg);
+    if (!notifier->is_ready()) {
+      fmt::print("get_fpga_offload_notifier: notifier not ready, disabling FPGA path\n");
+      notifier.reset();
+      return;
+    }
+    enabled = true;
+    fmt::print("get_fpga_offload_notifier: FPGA offload ENABLED via SRSRAN_FPGA_OFFLOAD=1\n");
+  });
+
+  return enabled ? notifier.get() : nullptr;
 }
