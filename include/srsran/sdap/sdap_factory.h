@@ -63,6 +63,21 @@ std::unique_ptr<sdap_entity> create_sdap(sdap_entity_creation_message& msg);
 /// UE/PDU session are tee'd to the FPGA in addition to the normal pipeline.
 sdap_tx_pdu_notifier* get_fpga_offload_notifier();
 
+/// Returns a process-wide singleton VART/U50 inference offload notifier, or
+/// nullptr when the VART path is disabled.
+///
+/// Gating:
+///   - Returns nullptr unless the SRSRAN_VART_OFFLOAD env var is set to "1".
+///   - First call constructs the notifier (loads the ResNet50 xmodel and
+///     creates a VART runner on the Alveo U50). If the model/device can't be
+///     opened, returns nullptr after logging.
+///   - Same pointer is returned across all subsequent calls.
+///
+/// Intended use: pdu_session_manager_impl plumbs the returned pointer into
+/// every sdap_entity_creation_message::fpga_offload so that DL SDUs from any
+/// UE/PDU session are tee'd to the U50 DPU for inference.
+sdap_tx_pdu_notifier* get_vart_offload_notifier();
+
 } // namespace srs_cu_up
 
 } // namespace srsran

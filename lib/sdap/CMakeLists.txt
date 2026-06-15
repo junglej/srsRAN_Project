@@ -22,5 +22,19 @@ set(SOURCES
     sdap_factory.cpp
     sdap_tx_fpga_notifier.cpp)
 
+if (ENABLE_FPGA_VART)
+    list(APPEND SOURCES sdap_tx_vart_notifier.cpp)
+endif ()
+
 add_library(srsran_sdap STATIC ${SOURCES})
 target_link_libraries(srsran_sdap)
+
+if (ENABLE_FPGA_VART)
+    target_link_libraries(srsran_sdap VART::VART ${OpenCV_LIBS})
+    target_include_directories(srsran_sdap SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
+    # VART/XIR headers use typeid; re-enable RTTI for the VART backend source.
+    set_source_files_properties(sdap_tx_vart_notifier.cpp PROPERTIES COMPILE_FLAGS "-frtti")
+    # Expose the feature flag to source files so the factory can conditionally
+    # reference the VART offload notifier.
+    target_compile_definitions(srsran_sdap PUBLIC ENABLE_FPGA_VART)
+endif ()

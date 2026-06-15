@@ -1,0 +1,72 @@
+# Docker-specific srsRAN gNB configuration for USRP X310 + Open5GS + Xilinx U50.
+# Based on gnb_x310_xianzhe.yaml but with container-friendly paths and a
+# separate NG-U bind address to avoid colliding with Open5GS UPF on 127.0.0.1:2152.
+
+cu_cp:
+  amf:
+    addr: 127.0.0.5
+    bind_addr: 127.0.0.1
+    supported_tracking_areas:
+      - tac: 1
+        plmn_list:
+          - plmn: "00101"
+            tai_slice_support_list:
+              - sst: 1
+
+ru_sdr:
+  device_driver: uhd
+  device_args: type=x300,addr=192.168.10.2,send_frame_size=1472,recv_frame_size=1472
+  clock: internal
+  sync: internal
+  srate: 15.36
+  # NOTE: These are the maximum supported gains for the installed daughterboard
+  # (CBX-like: TX [0,31.5] dB, RX [0,37.5] dB). Values from gnb_x310_xianzhe.yaml
+  # (40/40 dB) are out-of-range and rejected by UHD.
+  tx_gain: 31.5
+  rx_gain: 37.5
+
+cell_cfg:
+  dl_arfcn: 633334
+  band: 78
+  channel_bandwidth_MHz: 10
+  common_scs: 30
+  plmn: "00101"
+  tac: 1
+  pci: 1
+  tdd_ul_dl_cfg:
+    dl_ul_tx_period: 10
+    nof_dl_slots: 6
+    nof_dl_symbols: 6
+    nof_ul_slots: 3
+    nof_ul_symbols: 4
+  mac_cell_group:
+    bsr_cfg:
+      periodic_bsr_timer: 20
+
+# Bind the NG-U GTP-U socket to a loopback address different from Open5GS UPF.
+cu_up:
+  ngu:
+    socket:
+      - bind_addr: 127.0.0.10
+
+log:
+  filename: /logs/udp-ran.log
+  all_level: warning
+
+pcap:
+  mac_enable: false
+  mac_filename: /logs/gnb_mac.pcap
+  ngap_enable: false
+  ngap_filename: /logs/gnb_ngap.pcap
+  f1ap_enable: false
+  f1ap_filename: /logs/gnb_f1ap.pcap
+  e1ap_enable: false
+  e1ap_filename: /logs/gnb_e1ap.pcap
+  n3_enable: false
+  n3_filename: /logs/gnb_n3.pcap
+
+metrics:
+  enable_log: true
+  layers:
+    enable_ru: true
+    enable_sched: true

@@ -30,6 +30,12 @@
 #include <netinet/sctp.h>
 #include <sys/socket.h>
 
+// Older SCTP headers (e.g. Ubuntu 18.04 / lksctp-tools < 1.0.18) do not define
+// SCTP_FUTURE_ASSOC.  The value is stable across kernels: -2.
+#ifndef SCTP_FUTURE_ASSOC
+#define SCTP_FUTURE_ASSOC (-2)
+#endif
+
 using namespace srsran;
 
 /// Subscribes to various SCTP events to handle association and shutdown gracefully.

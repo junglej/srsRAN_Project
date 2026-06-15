@@ -29,6 +29,10 @@
 #include <memory>
 #include <mutex>
 
+#ifdef ENABLE_FPGA_VART
+#include "sdap_tx_vart_notifier.h"
+#endif
+
 /// Notice this would be the only place were we include concrete class implementation files.
 
 using namespace srsran;
@@ -69,4 +73,46 @@ sdap_tx_pdu_notifier* srsran::srs_cu_up::get_fpga_offload_notifier()
   });
 
   return enabled ? notifier.get() : nullptr;
+}
+
+sdap_tx_pdu_notifier* srsran::srs_cu_up::get_vart_offload_notifier()
+{
+#ifdef ENABLE_FPGA_VART
+  // First-call initialisation, gated by env var. Constructed once and reused
+  // for the whole process.
+  static std::once_flag                          init_once;
+  static std::unique_ptr<sdap_tx_vart_notifier> notifier;
+  static bool                                    enabled = false;
+
+  std::call_once(init_once, []() {
+    const char* env = std::getenv("SRSRAN_VART_OFFLOAD");
+    if (env == nullptr || std::strcmp(env, "1") != 0) {
+      return;
+    }
+
+    sdap_vart_config cfg{};
+    cfg.xmodel_path = []() {
+      const char* env_path = std::getenv("SDAP_VART_MODEL");
+      return env_path != nullptr ? std::string(env_path) : std::string("/models/resnet50/resnet50.xmodel");
+    }();
+    cfg.xclbin_path = []() {
+      const char* env_path = std::getenv("SDAP_VART_XCLBIN");
+      return env_path != nullptr ? std::string(env_path) : std::string("");
+    }();
+
+    notifier = std::make_unique<sdap_tx_vart_notifier>(cfg);
+    if (!notifier->is_ready()) {
+      fmt::print("get_vart_offload_notifier: notifier not ready ({}), disabling VART path\n",
+                 notifier->get_last_error());
+      notifier.reset();
+      return;
+    }
+    enabled = true;
+    fmt::print("get_vart_offload_notifier: VART/U50 offload ENABLED via SRSRAN_VART_OFFLOAD=1\n");
+  });
+
+  return enabled ? notifier.get() : nullptr;
+#else
+  return nullptr;
+#endif
 }

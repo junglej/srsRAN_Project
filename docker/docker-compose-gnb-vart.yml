@@ -1,0 +1,65 @@
+#
+# Copyright 2021-2026 Software Radio Systems Limited
+#
+# This file is part of srsRAN.
+#
+# srsRAN is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of
+# the License, or (at your option) any later version.
+#
+# srsRAN is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# A copy of the GNU Affero General Public License can be found in
+# the LICENSE file in the top-level directory of this distribution
+# and at http://www.gnu.org/licenses/.
+#
+
+version: '3.3'
+
+# Docker Compose for running srsRAN gNB with Xilinx VART/U50 support.
+#
+# This compose uses host networking so that:
+#   - the gNB can reach the X310 at 192.168.10.2
+#   - the gNB can reach Open5GS AMF at 127.0.0.5 (when Open5GS runs on the host)
+#   - the container can access the U50 via the host XRT driver
+#
+# Usage:
+#   docker compose -f docker/docker-compose-gnb-vart.yml up --build
+#
+# To run the unit test instead of the gNB:
+#   docker compose -f docker/docker-compose-gnb-vart.yml run --rm srsran-gnb-vart \
+#       /opt/srs/bin/sdap_vart_test
+
+services:
+  srsran-gnb-vart:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gnb-vart
+    image: srsran-gnb-vart:latest
+    container_name: srsran-gnb-vart
+    network_mode: host
+    privileged: true
+    environment:
+      - XILINX_XRT=/opt/xilinx/xrt
+      - XLNX_VART_FIRMWARE=/opt/xilinx/overlaybins/DPUCAHX8H/dpuv3e_6E300_xilinx_u50_gen3x4_xdma_base_2.xclbin
+      - LD_LIBRARY_PATH=/opt/vitis-ai/vart/lib:/opt/xilinx/xrt/lib:/opt/xilinx/xrm/lib:/usr/local/lib:/usr/lib
+      - UHD_IMAGES_DIR=/usr/share/uhd/images
+      - SDAP_VART_MODEL=/models/resnet50/resnet50.xmodel
+      - SDAP_VART_IMAGE=/models/image.jpg
+      - SRSRAN_VART_OFFLOAD=1
+    volumes:
+      # gNB configuration file (container-specific paths + NG-U bind address).
+      - ./gnb_x310_docker.yaml:/config/gnb.yml:ro
+      # Xilinx overlaybins (xclbin) mounted from the host.
+      - /opt/xilinx/overlaybins:/opt/xilinx/overlaybins:ro
+      # UHD FPGA images from the host source-built UHD installation.
+      - /usr/local/share/uhd/images:/usr/share/uhd/images:ro
+      # Model Zoo images mounted from the host.
+      - /home/ran/Documents/Xilinx_SmartNIC/vitis_ai_u50/downloads:/models:ro
+      # Log / PCAP output directory.
+      - /home/ran/Documents/5G_raw_gnb_data:/logs
+    command: ["-c", "/config/gnb.yml"]

@@ -86,6 +86,7 @@ option(ENABLE_DPDK           "Enable DPDK"                                  OFF)
 option(ENABLE_LIBNUMA        "Enable LibNUMA"                               OFF)
 option(ENABLE_EXPORT         "Enable PIC and export libraries"              OFF)
 option(ENABLE_TRX_DRIVER     "Enable Amarisoft TRX driver library"          OFF)
+option(ENABLE_FPGA_VART      "Enable Xilinx VART/Alveo U50 SDAP backend"    OFF)
 option(ENABLE_PLUGINS        "Compile plugins in the plugin folder"         ON)
 option(BUILD_TESTING         "Compile tests"                                OFF)
 option(ENABLE_GPROF          "Enable gprof"                                 OFF)
@@ -439,7 +440,55 @@ endif (ENABLE_ARMPL AND ${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch64")
 
 # Google Tests
 if (BUILD_TESTING)
-    find_package(GTest REQUIRED)
+    # Prefer a recent system GTest. Some older CMake/FindGTest combinations report a
+    # version even though the installed headers are too old for GTEST_SKIP, so verify
+    # the macro is actually present before accepting the system package.
+    find_package(GTest QUIET)
+    set(GTEST_USABLE FALSE)
+    if (GTest_FOUND)
+        include(CheckCXXSourceCompiles)
+        set(CMAKE_REQUIRED_INCLUDES ${GTEST_INCLUDE_DIRS})
+        set(CMAKE_REQUIRED_LIBRARIES ${GTEST_LIBRARY} ${GTEST_MAIN_LIBRARY})
+        check_cxx_source_compiles("
+#include <gtest/gtest.h>
+#ifndef GTEST_SKIP
+#error \"GTEST_SKIP not available\"
+#endif
+int main() { return 0; }
+" GTEST_HAS_SKIP)
+        if (GTEST_HAS_SKIP)
+            set(GTEST_USABLE TRUE)
+        else ()
+            message(STATUS "System GTest found but too old (GTEST_SKIP missing); fetching googletest via FetchContent.")
+        endif ()
+    endif ()
+
+    if (NOT GTEST_USABLE)
+        include(FetchContent)
+        FetchContent_Declare(
+            googletest
+            URL      https://github.com/google/googletest/releases/download/v1.16.0/googletest-1.16.0.tar.gz
+            URL_HASH SHA256=78c676fc63881529bf97bf9d45948d905a66833fbfa5318ea2cd7478cb98f399
+        )
+        set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+        FetchContent_MakeAvailable(googletest)
+    endif ()
+
+    # Provide a uniform set of targets for test CMakeLists.
+    if (TARGET GTest::gtest)
+        set(SRSRAN_GTEST_TARGETS GTest::gtest GTest::gtest_main)
+    elseif (TARGET gtest)
+        set(SRSRAN_GTEST_TARGETS gtest gtest_main)
+    else ()
+        add_library(srsran_gtest INTERFACE IMPORTED)
+        target_link_libraries(srsran_gtest INTERFACE ${GTEST_LIBRARY})
+        target_include_directories(srsran_gtest SYSTEM INTERFACE ${GTEST_INCLUDE_DIRS})
+        add_library(srsran_gtest_main INTERFACE IMPORTED)
+        target_link_libraries(srsran_gtest_main INTERFACE ${GTEST_MAIN_LIBRARY})
+        target_include_directories(srsran_gtest_main SYSTEM INTERFACE ${GTEST_INCLUDE_DIRS})
+        set(SRSRAN_GTEST_TARGETS srsran_gtest srsran_gtest_main)
+    endif ()
+
     # Alias gtest_discover_tests increase discovery the timeout.
     function(gtest_discover_tests)
         _gtest_discover_tests(
@@ -542,6 +591,17 @@ if (ENABLE_DPDK)
 else (ENABLE_DPDK)
     unset(DPDK_FOUND CACHE)
 endif (ENABLE_DPDK)
+
+# Xilinx VART / Alveo U50 SDAP backend
+if (ENABLE_FPGA_VART)
+    find_package(VART)
+    find_package(OpenCV REQUIRED)
+    if (NOT VART_FOUND)
+        message(FATAL_ERROR "ENABLE_FPGA_VART is ON but VART/XIR libraries were not found")
+    endif ()
+    include_directories(SYSTEM ${VART_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
+    message(STATUS "VART backend enabled: ${VART_LIBRARIES}")
+endif (ENABLE_FPGA_VART)
 
 if(SCTP_FOUND)
     sbom_add(

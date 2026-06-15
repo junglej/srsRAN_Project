@@ -33,6 +33,20 @@
 
 namespace srsran {
 
+namespace detail {
+// Equivalent to ntohs(12) but usable as a constant expression with older glibc
+// macros (which are statement-expressions and cannot appear at namespace scope).
+constexpr uint16_t make_exp_pdu_tag_dissector_name()
+{
+  constexpr uint16_t host_value = 12;
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  return host_value;
+#else
+  return static_cast<uint16_t>(((host_value & 0xffU) << 8) | (host_value >> 8));
+#endif
+}
+} // namespace detail
+
 // End-of-options
 const uint32_t EXP_PDU_TAG_END_OF_OPT    = 0;
 const uint32_t EXP_PDU_LENGTH_END_OF_OPT = 4;
@@ -43,7 +57,7 @@ const uint32_t EXP_PDU_LENGTH_END_OF_OPT = 4;
 // NOTE: this is NOT a protocol name; a given protocol may have multiple
 // dissectors, if, for example, the protocol headers depend on the
 // protocol being used to transport the protocol in question.
-const uint16_t EXP_PDU_TAG_DISSECTOR_NAME = ntohs(12);
+const uint16_t EXP_PDU_TAG_DISSECTOR_NAME = detail::make_exp_pdu_tag_dissector_name();
 
 /// This structure gets written to the start of the file
 struct pcap_hdr_t {

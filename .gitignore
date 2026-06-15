@@ -1,0 +1,8 @@
+# Build directories
+build/
+build-test-*/
+build-vart/
+
+# Backup files
+*.bak
+*.bak.*

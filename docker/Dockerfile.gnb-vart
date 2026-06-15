@@ -1,0 +1,213 @@
+#
+# Copyright 2021-2026 Software Radio Systems Limited
+#
+# This file is part of srsRAN.
+#
+# srsRAN is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of
+# the License, or (at your option) any later version.
+#
+# srsRAN is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# A copy of the GNU Affero General Public License can be found in
+# the LICENSE file in the top-level directory of this distribution
+# and at http://www.gnu.org/licenses/.
+#
+
+# srsRAN gNB Docker image with Xilinx VART/U50 support.
+# The VART runtime is extracted from the official Vitis AI image and then
+# executed on an Ubuntu 20.04 base, matching the host OS.
+
+FROM xilinx/vitis-ai:1.4.1.978 AS vart-runtime
+
+# Extract VART/XIR libraries, headers and the *old* SONAME dependencies that
+# VART 1.4.1 was built against. Ubuntu 20.04 ships newer versions of these
+# libraries, so they must be bundled alongside VART.
+#
+# The XRT/XRM user-space libraries are also copied from the Vitis AI image.
+# They have the same version number as the host installation but were built
+# against Boost 1.65.1, so they are ABI-compatible with VART. Mixing them with
+# the host's Boost-1.71-linked XRT libraries caused a crash in boost::filesystem.
+RUN mkdir -p /opt/vitis-ai/vart/lib /opt/vitis-ai/vart/include \
+             /opt/xilinx/xrt/lib /opt/xilinx/xrm/lib && \
+    cp -d /usr/lib/libvart*.so* /opt/vitis-ai/vart/lib/ && \
+    cp -d /usr/lib/libxir*.so* /opt/vitis-ai/vart/lib/ && \
+    cp -d /usr/lib/libvitis_ai_library*.so* /opt/vitis-ai/vart/lib/ && \
+    cp -d /usr/lib/libunilog*.so* /opt/vitis-ai/vart/lib/ && \
+    cp -d /usr/lib/librt-engine.so* /opt/vitis-ai/vart/lib/ && \
+    cp -d /usr/lib/libtarget-factory.so* /opt/vitis-ai/vart/lib/ && \
+    cp -d /usr/local/lib/libprotobuf.so* /opt/vitis-ai/vart/lib/ && \
+    cp -d /usr/local/lib/libglog.so* /opt/vitis-ai/vart/lib/ && \
+    cp -d /usr/local/lib/libgflags.so* /opt/vitis-ai/vart/lib/ && \
+    cp -d /lib/x86_64-linux-gnu/libjson-c.so.3* /opt/vitis-ai/vart/lib/ && \
+    cp -d /usr/lib/x86_64-linux-gnu/libboost_system.so* /opt/vitis-ai/vart/lib/ && \
+    cp -d /usr/lib/x86_64-linux-gnu/libboost_filesystem.so* /opt/vitis-ai/vart/lib/ && \
+    cp -d /opt/xilinx/xrt/lib/*.so* /opt/xilinx/xrt/lib/ && \
+    cp -r /opt/xilinx/xrt/lib/xrt /opt/xilinx/xrt/lib/ && \
+    cp -d /opt/xilinx/xrm/lib/*.so* /opt/xilinx/xrm/lib/ && \
+    cp -r /opt/xilinx/xrm/plugin /opt/xilinx/xrm/ 2>/dev/null || true && \
+    cp -r /usr/include/vart /opt/vitis-ai/vart/include/ && \
+    cp -r /usr/include/xir /opt/vitis-ai/vart/include/ && \
+    cp -r /usr/include/UniLog /opt/vitis-ai/vart/include/ && \
+    cp -r /usr/include/vitis /opt/vitis-ai/vart/include/ && \
+    cp -r /usr/include/object_detection /opt/vitis-ai/vart/include/ 2>/dev/null || true && \
+    cp -r /usr/include/second /opt/vitis-ai/vart/include/ 2>/dev/null || true && \
+    cp -r /usr/include/aks /opt/vitis-ai/vart/include/ 2>/dev/null || true
+
+# Build UHD from source so that the image matches the host's FPGA image revision.
+# The Ubuntu 20.04 package (4.9.0) does not support the X310 image on this host.
+FROM ubuntu:20.04 AS uhd-builder
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG NUM_JOBS=""
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential cmake git \
+        libboost-all-dev libusb-1.0-0-dev \
+        python3 python3-mako python3-numpy python3-yaml \
+        ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth 1 --branch v4.10.0.0 https://github.com/EttusResearch/uhd.git /tmp/uhd && \
+    mkdir -p /tmp/uhd/host/build && cd /tmp/uhd/host/build && \
+    cmake .. \
+        -DCMAKE_INSTALL_PREFIX=/usr/local \
+        -DENABLE_PYTHON_API=OFF \
+        -DENABLE_EXAMPLES=OFF \
+        -DENABLE_TESTS=OFF \
+        -DENABLE_MANUAL=OFF \
+        -DENABLE_DPDK=OFF && \
+    if [ -z "$NUM_JOBS" ]; then NUM_JOBS=$(nproc); fi && \
+    make -j${NUM_JOBS} && \
+    make install && \
+    rm -rf /tmp/uhd
+
+FROM ubuntu:20.04 AS builder
+
+ARG NUM_JOBS=""
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Install srsRAN build dependencies and GCC 11. GCC 9 in Ubuntu 20.04 has
+# trouble with some of the C++17 code paths in this project.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        software-properties-common && \
+    add-apt-repository -y ppa:ubuntu-toolchain-r/test && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential gcc-11 g++-11 cmake git \
+        libsctp-dev libmbedtls-dev libyaml-cpp-dev \
+        libfftw3-dev libusb-1.0-0-dev \
+        libopencv-dev libopencv-imgcodecs-dev libopencv-imgproc-dev \
+        libgoogle-glog-dev libboost-all-dev libgtest-dev \
+        curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV CC=gcc-11
+ENV CXX=g++-11
+
+# Copy the UHD built in the previous stage.
+COPY --from=uhd-builder /usr/local /usr/local
+RUN echo /usr/local/lib > /etc/ld.so.conf.d/uhd-local.conf && ldconfig
+
+# Bring in the VART runtime and its bundled old SONAME dependencies.
+COPY --from=vart-runtime /opt/vitis-ai/vart /opt/vitis-ai/vart
+RUN echo /opt/vitis-ai/vart/lib > /etc/ld.so.conf.d/vitis-ai-vart.conf && ldconfig
+
+# VART's gtest_discover_tests step runs the freshly-linked test binary, so the
+# loader must be able to find the bundled libraries at build time.
+ENV LD_LIBRARY_PATH=/opt/vitis-ai/vart/lib
+
+# Add srsRAN source. CACHEBUST can be overridden to force a rebuild from here.
+ARG CACHEBUST=1
+RUN echo "CACHEBUST=${CACHEBUST}"
+ADD . /src
+
+# Build srsRAN with the VART/U50 backend enabled.
+RUN mkdir -p /src/build-vart-docker && cd /src/build-vart-docker && \
+    cmake /src \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_TESTING=ON \
+        -DENABLE_FPGA_VART=ON \
+        -DVART_ROOT=/opt/vitis-ai/vart \
+        -DCMAKE_BUILD_RPATH=/opt/vitis-ai/vart/lib \
+        -DCMAKE_INSTALL_RPATH=/opt/vitis-ai/vart/lib \
+        -DENABLE_BACKWARD=OFF \
+        -DENABLE_UHD=ON \
+        -DENABLE_ZEROMQ=OFF \
+        -DENABLE_FFTW=OFF \
+        -DENABLE_MKL=OFF \
+        -DENABLE_ARMPL=OFF \
+        -DENABLE_DPDK=OFF \
+        -DENABLE_LIBNUMA=OFF \
+        -DENABLE_PLUGINS=OFF \
+        -DENABLE_TRX_DRIVER=OFF \
+        -DENABLE_ROHC=OFF \
+        -DENABLE_EXPORT=OFF && \
+    if [ -z "$NUM_JOBS" ]; then NUM_JOBS=$(nproc); fi && \
+    make -j${NUM_JOBS} gnb srscu srsdu sdap_vart_test
+
+# Install the produced binaries into a fixed prefix.
+ENV SRS_INSTALL_DIR=/opt/srs
+RUN cd /src/build-vart-docker && \
+    (cmake --install . --prefix ${SRS_INSTALL_DIR} >/dev/null 2>&1 || true) && \
+    mkdir -p ${SRS_INSTALL_DIR}/bin && \
+    cp /src/build-vart-docker/apps/gnb/gnb ${SRS_INSTALL_DIR}/bin/ && \
+    cp /src/build-vart-docker/apps/cu/srscu ${SRS_INSTALL_DIR}/bin/ 2>/dev/null || true && \
+    cp /src/build-vart-docker/apps/du/srsdu ${SRS_INSTALL_DIR}/bin/ 2>/dev/null || true && \
+    cp /src/build-vart-docker/tests/unittests/sdap/sdap_vart_test ${SRS_INSTALL_DIR}/bin/ 2>/dev/null || true
+
+FROM ubuntu:20.04 AS runtime
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Runtime packages required by gNB, UHD and the VART test binary.
+# libstdc++6 must come from the toolchain PPA because the binaries were built
+# with GCC 11 and need GLIBCXX_3.4.29.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends software-properties-common && \
+    add-apt-repository -y ppa:ubuntu-toolchain-r/test && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        iproute2 net-tools iputils-ping \
+        libsctp1 libyaml-cpp0.6 libmbedtls12 libfftw3-single3 \
+        libusb-1.0-0 \
+        libboost-system1.71.0 libboost-filesystem1.71.0 libboost-thread1.71.0 \
+        libboost-chrono1.71.0 libboost-date-time1.71.0 libboost-regex1.71.0 \
+        libboost-serialization1.71.0 libboost-program-options1.71.0 \
+        libopencv-core4.2 libopencv-imgproc4.2 libopencv-imgcodecs4.2 \
+        libunwind8 ca-certificates libstdc++6 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy UHD libraries built from source.
+COPY --from=uhd-builder /usr/local/lib/libuhd.so* /usr/local/lib/
+RUN echo /usr/local/lib > /etc/ld.so.conf.d/uhd-local.conf && ldconfig
+
+# Copy VART runtime, bundled XRT/XRM libraries and the compiled srsRAN binaries.
+COPY --from=vart-runtime /opt/vitis-ai/vart /opt/vitis-ai/vart
+COPY --from=vart-runtime /opt/xilinx /opt/xilinx
+COPY --from=builder /opt/srs /opt/srs
+
+RUN echo /opt/vitis-ai/vart/lib > /etc/ld.so.conf.d/vitis-ai-vart.conf && \
+    echo /opt/xilinx/xrt/lib > /etc/ld.so.conf.d/xilinx-xrt.conf && \
+    echo /opt/xilinx/xrm/lib > /etc/ld.so.conf.d/xilinx-xrm.conf && \
+    ldconfig
+
+# U50 / XRT runtime environment. The xclbin overlaybins and UHD FPGA images are
+# bind-mounted from the host.
+ENV XILINX_XRT=/opt/xilinx/xrt
+ENV XLNX_VART_FIRMWARE=/opt/xilinx/overlaybins/DPUCAHX8H/dpuv3e_6E300_xilinx_u50_gen3x4_xdma_base_2.xclbin
+ENV UHD_IMAGES_DIR=/usr/share/uhd/images
+ENV LD_LIBRARY_PATH=/opt/vitis-ai/vart/lib:/opt/xilinx/xrt/lib:/opt/xilinx/xrm/lib:/usr/local/lib
+ENV SDAP_VART_MODEL=/models/resnet50/resnet50.xmodel
+ENV SDAP_VART_IMAGE=/models/image.jpg
+ENV SRSRAN_VART_OFFLOAD=1
+
+WORKDIR /opt/srs
+ENTRYPOINT ["/opt/srs/bin/gnb"]
+CMD ["-c", "/config/gnb.yml"]

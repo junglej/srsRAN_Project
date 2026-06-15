@@ -21,21 +21,28 @@
 set_directory_properties(PROPERTIES LABELS "pdcp")
 
 add_executable(sdap_test sdap_test.cpp)
-target_link_libraries(sdap_test srsran_support srslog gtest gtest_main)
+target_link_libraries(sdap_test srsran_support srslog ${SRSRAN_GTEST_TARGETS})
 target_include_directories(sdap_test PRIVATE ${CMAKE_SOURCE_DIR})
 gtest_discover_tests(sdap_test)
 
 add_executable(sdap_tx_test sdap_tx_test.cpp)
-target_link_libraries(sdap_tx_test srsran_support srslog gtest gtest_main)
+target_link_libraries(sdap_tx_test srsran_support srslog ${SRSRAN_GTEST_TARGETS})
 target_include_directories(sdap_tx_test PRIVATE ${CMAKE_SOURCE_DIR})
 gtest_discover_tests(sdap_tx_test)
 
 add_executable(sdap_rx_test sdap_rx_test.cpp)
-target_link_libraries(sdap_rx_test srsran_support srslog gtest gtest_main)
+target_link_libraries(sdap_rx_test srsran_support srslog ${SRSRAN_GTEST_TARGETS})
 target_include_directories(sdap_rx_test PRIVATE ${CMAKE_SOURCE_DIR})
 gtest_discover_tests(sdap_rx_test)
 
 add_executable(sdap_fpga_tee_test sdap_fpga_tee_test.cpp)
-target_link_libraries(sdap_fpga_tee_test srsran_sdap srsran_support srslog gtest gtest_main)
+target_link_libraries(sdap_fpga_tee_test srsran_sdap srsran_support srslog ${SRSRAN_GTEST_TARGETS})
 target_include_directories(sdap_fpga_tee_test PRIVATE ${CMAKE_SOURCE_DIR})
 gtest_discover_tests(sdap_fpga_tee_test)
+
+if (ENABLE_FPGA_VART)
+    add_executable(sdap_vart_test sdap_vart_test.cpp)
+    target_link_libraries(sdap_vart_test srsran_sdap srsran_support srslog ${SRSRAN_GTEST_TARGETS})
+    target_include_directories(sdap_vart_test PRIVATE ${CMAKE_SOURCE_DIR})
+    gtest_discover_tests(sdap_vart_test)
+endif ()
